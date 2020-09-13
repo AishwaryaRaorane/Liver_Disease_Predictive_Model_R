@@ -1,0 +1,618 @@
+#Data Mining and Machine Learning Project
+
+#Aishwarya Raorane
+
+#BUSINESS UNDERSTANDING
+Goal of the Project: Use data mining methods based on data obtained from analysis ever undertaken, to help                      diagnose liver disease at an early stage. The response variable has 1 n 0                                  indicating patients with liver disease and patients without liver disease respectively                      based on other feature values.
+#DATA UNDERSTANDING
+
+I. Data Acquisition
+
+```{r}
+#read the datafile in csv format
+liver_data <- read.csv("C:/Users/jaysu/Desktop/Aish/dml/project/indian-liver-patient-records/indian_liver_pat.csv")
+
+#Loading all the required Libraries
+library(psych)
+library(ggplot2)
+library(caret)
+library(psych)
+library(VIM)
+library(mice)
+library(kernlab)
+library(randomForest)
+library(caretEnsemble)
+```
+
+II. Data Exploration
+
+```{r}
+
+#Basic understanding of liver_data dataframe
+
+str(liver_data)
+#Using str() I analyze the basic structure of data. The data consists of 11 variables and 583 observations. Response variable is dataset which is an int with values 1 n 0. Where 1 indicates a patient with liver disease and 0 indicates patient wothout liver disease.Gender variable is a factor with 2 levels male and female, while other variables are int and num data type.
+```
+
+```{r}
+#I further explored the data using describeBy from psych package to give more details about distribution of data.
+
+d <- describeBy(liver_data,groups="mygroups")
+d
+
+#I analyzed that data skewness is present, from skew values. The skew values of feautures like Aspartate_Aminotransferase and Alamine_Aminotransferase are greater than +1 indicating high right skewedness in the data. Also for Aspartate_Aminotransferase, the trimmed value which indicates the mean of a dataset by trimming the outliers, is widely different from the actual mean indicating presence of outliers.
+
+```
+III. Exploratory Data plots
+
+```{r}
+
+temp <- liver_data
+temp$Dataset <- as.factor(temp$Dataset)
+temp$Gender <- as.numeric(temp$Gender)
+
+#plotting a pie chart of attribute dataset
+mytable <- table(temp$Dataset)
+lbls <- c("Patients without liver disease", "Patients with liver disease")
+lbls <- paste(lbls, "\n", mytable)          
+pie(mytable, labels = lbls, 
+   main="Pie Chart of Dataset\n (with sample sizes)", col=rainbow(length(lbls)))
+#From the chart I inferred that number of patient records with liver disease(1) is 416 which is more than the number of patient records without liver disease(0).
+
+#plotting a histogram of attribute Gender according to response attribute Dataset
+ggplot(data=temp, aes(x=Gender)) + geom_histogram(binwidth=0.2, color="black", aes(fill=Dataset)) +               xlab("Gender") +  ylab("Dataset") + ggtitle("Histogram of Gender")
+# From this gender histogram, I in inferred that the number of Male records is more than female and the number of male's with liver disease(1) i.e >300 is also greater than female i.e. around 150.
+```
+
+
+```{r}
+par(mfrow=c(3,3))
+#I further explored the skewness in the data by plotting a histogram 
+
+col_hist <- c("#56B4E9", "#000000", "#009E73", "#E69F00", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+hist(liver_data$Age,col = "#999999",border = "black", las =1, xlab= "Age", main = "Histogram of Age")
+
+#plotting histograms for all the features.
+for(i in 3:10)
+{
+hist(liver_data[,i], cex.axis=.5, col = col_hist[i-2], las =1, xlab = names(liver_data)[i], main = paste("Histogram of", names(liver_data)[i]))
+}
+
+#I realized that High Right Skewness is present in features Alkaline Phospotas, Total Bilirubin, Alamine Aminostransfer, Direct Bilirubin and Aspartate Aminotransfe.
+```
+
+```{r}
+
+par(mfrow=c(3,3))
+
+#To handle right skewness in the data, I analyzed log transofrmation of the features and plotted their histogram.
+
+col_hist <- c("#56B4E9", "#000000", "#009E73", "#E69F00", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+hist(log(liver_data$Age),col = "#999999",border = "black", las =1, xlab= "Age", main = "Histogram of Age")
+
+#Histograms of the log transforms of the features.
+for(i in 3:10)
+{
+hist(log(liver_data[,i]), cex.axis=.5, col = col_hist[i-2], las =1, xlab = names(liver_data)[i], main = paste("Histogram of", names(liver_data)[i]))
+}
+
+#However, I didnt see much improvement in the data. Hence I did not use the log transformed data.
+```
+
+```{r}
+# density plots for each attribute by class value shows the distribution of the data for each attribute with respect to feature Dataset
+#Pink Density graogh indicates a density plot of features with liver disease. and blue indicate density plo of features without liver disease.
+
+x <- temp[,1:5]
+y <- temp[,11]
+scales <- list(x=list(relation="free"), y=list(relation="free"))
+featurePlot(x=x, y=y, plot="density", scales=scales)
+
+x <- temp[,5:10]
+y <- temp[,11]
+scales <- list(x=list(relation="free"), y=list(relation="free"))
+featurePlot(x=x, y=y, plot="density", scales=scales)
+```
+
+```{r}
+#I also analyzed the distribution of age w.r.t response variable using a box plot and mapping a jitter_plot of values over it.
+#I can see that there are more number of patients with liver disease above the median.
+
+ggplot(temp, aes(x = factor(1), y = Age)) +
+  geom_boxplot(width = 0.4, fill = "white") +
+  geom_jitter(aes(color = Dataset, shape = Dataset), 
+              width = 0.1, size = 1) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800")) + 
+  labs(x = NULL)   # Remove x axis label
+```
+
+IV. Detecting Outliers
+
+```{r}
+#I used boxplots to analyze the outliers
+#In boxplots outliers are represented by circles. Outliers are the values which lie beyond interquarile range of the data.
+
+#I analyze that most of the data in Alkaline_Phosphotase, Alamine_Aminotransferase and Aspartate_Aminotransferase is an outlier.  
+
+par(mfrow=c(2,2))
+
+col_boxplot = c("#56B4E9", "#009E73", "#E69F00", "#F0E442", "#56B4E9", "#D55E00", "#CC79A7", "#999999")
+
+boxplot(liver_data$Age, cex.axis=.5, col = "#999999", main= "Age")
+
+for(i in 3:10)
+{
+boxplot(liver_data[,i], cex.axis=.5, col = col_boxplot[i-2], main=names(liver_data)[i])
+}
+
+```
+
+```{r}
+#Depicting outliers using cooks distance which is a multivariate approach. Showing the values which are 3 * cooks distance away from mean as an outlier.
+
+#The cook's distance for each observation i measures the change in Y (fitted Y) for all observations with and without the presence of observation i, so we know how much the observation i impacted the fitted values.
+
+mod <- glm(Dataset ~ ., data=liver_data)
+cooksd <- cooks.distance(mod)
+
+plot(cooksd, pch="*", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
+abline(h = 3*mean(cooksd, na.rm=T), col="red")  # add cutoff line
+text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>3*mean(cooksd, na.rm=T),names(cooksd),""), col="red")  # add labels
+```
+
+V. Correlation and colinearity analysis
+
+```{r}
+
+#I used scatterplot matrix(SPLOM) from psych package to understand the correlation between different variables
+
+pairs.panels(liver_data, pch = 10)
+
+#Along the diagonal the output shows the distribution of each variable i.e. the histogram.
+
+#The negative correlation between features indicate that as one goes up other goes down, as in case of total_bilirubin and Albumin. This is logical as we know from data definition that in case of liver disease total_bilirubin increases and albumin which is a protein made by liver decreases.
+
+#I notice that there is a strong colinearity between features Total_Bilirubin and Direct_Bilirubin, Alamine_Aminotransferase and Aspartate_Aminotransferase, Total_Protiens and Albumin.
+#Due to strong colinearity between features total_bilirubin and direct_bilirubin,it may lead to overfitting of the model. Hence we may eliminate one of them based on their p-value while building the model.
+
+#I have plotted the correlation of these attributes seperately for a clearer view
+
+#The bottom part of the graph shows the scatterplot between different features
+
+pairs.panels(liver_data[,c(3,4,6,7,8,9)])
+
+
+#I plotted a scatter plot of total bilirubin v/s direct bilirubin to visualize the collinearity between them.
+scatter <- ggplot(data=temp, aes(x = temp$Total_Bilirubin, y = temp$Direct_Bilirubin)) 
+scatter + geom_point(aes(color=Dataset, shape=Dataset)) +
+  xlab("Total_Bilirubin") +  ylab("Direct_Bilirubin") +
+  ggtitle("Total_Bilirubin-Direct_Bilirubin")
+
+
+```
+
+
+VI. Analyzing the missing value distribution in the dataset
+
+```{r}
+
+table(is.na(liver_data)) #Using table to count total number of missing values in data i.e. 53
+
+
+sapply(liver_data, function(x) sum(is.na (x))) #Number of NA values with respect to each feature
+
+#I have visualized a pattern of missing values using VIM package, I notice that 91% of data is complete with no missing values.
+
+missing_plot <- aggr(liver_data, col=c('navyblue','yellow'), numbers=TRUE, sortVars=TRUE,
+labels=names(liver_data), cex.axis=.5, gap=3, ylab=c("Missing data","Pattern")) #The missing data graph shows the distribution of missing values in each variable
+
+```
+#DATA PREPARATION
+
+I. Feature Engineering: Dummy Codes
+
+```{r}
+
+liver_data_dummy <- liver_data
+
+#converting gender which is a factor of 2 levels into dummy codes
+dmy <- dummyVars("~ .", data= liver_data_dummy, fullRank= T)
+liver_data_dummy <- data.frame(predict(dmy,newdata= liver_data_dummy))
+str(liver_data_dummy)
+```
+
+II. Imputing Missing Values
+
+```{r}
+#I am using predictive modeling for imputation from mice package. This method uses regression to impute the missing values based on other observations.
+
+#since the missing values features are of numeric data type, I am using Predictive mean matching i.e. pmm for imputation
+#m=4 indicates that it will create 4 imputed datasets
+#maxit = 20, I am specifying the number of iteration as 20
+
+imputed_liver_dt_dummy <- mice(liver_data_dummy, m=4, maxit = 20, method = 'pmm', seed = 500)
+
+```
+
+```{r}
+
+summary(imputed_liver_dt_dummy)
+```
+
+```{r}
+#Since 4 imputed datasets are created. I am using any one of these 4 data sets i.e. 2nd dataset
+liver_data_dummy_imputed <- complete(imputed_liver_dt_dummy,2)
+
+#checking if there are any missing values
+table(is.na(liver_data_dummy_imputed))
+
+#Since all values are false, therefore there are no more missing values
+```
+
+III. Handling outliers
+```{r}
+#I am handling outlier using cooks distance.
+
+#Storing influential row numbers i.e. rows with outliers
+influential <- as.numeric(names(cooksd)[(cooksd > 3*mean(cooksd, na.rm=T))])  
+influential
+```
+
+```{r}
+#I decided to remove the observations which are outliers as per cooks distance.
+liver_data_dummy_imputed_noOut <- liver_data_dummy_imputed[-influential,]
+```
+
+IV. normalization/Standardization of feature values
+```{r}
+
+#creating normalize function 
+normalize <- function(x)
+{
+  return((x-mean(x))/sd(x)) #z score normalization
+}
+
+#applying normalize function to all features except Gender and Dataset
+liver_data_dummy_imputed_noOut_norm <- as.data.frame(lapply(liver_data_dummy_imputed_noOut[,c(1,3:10)],normalize)) 
+
+Dataset <- liver_data_dummy_imputed_noOut$Dataset
+Gender <- liver_data_dummy_imputed_noOut$Gender.Male
+
+#Binding Dataset and Gender to normalized data
+liver_data_dummy_imputed_noOut_norm$Gender <- Gender
+liver_data_dummy_imputed_noOut_norm$Dataset <- Dataset 
+
+summary(liver_data_dummy_imputed_noOut_norm)
+
+#storing as clean data
+liver_clean_data <- liver_data_dummy_imputed_noOut_norm 
+str(liver_clean_data)
+```
+
+#MODEL CONSTRUCTION AND EVALUATION
+
+```{r}
+#Creating training and validation data
+
+#Splitting the liver_clean_data into training and testing datasets
+set.seed(80)
+liver_clean_data_lm <- liver_clean_data
+
+
+#Converting Dataset to a factor variable
+liver_clean_data$Dataset <- as.factor(liver_clean_data$Dataset)
+
+#Creating a stratified data partition with 80% data in training data sets and 20% in testing datasets
+Index <- createDataPartition(liver_clean_data$Dataset, p=0.8, list = FALSE)
+
+#Splitting clean_data with all features into train and test datasets
+train_data <- liver_clean_data[Index,]
+test_data <-liver_clean_data[-Index,]
+
+
+#Splitting data with response variable as numeric for logistic regression model
+train_data_lm <- liver_clean_data_lm[Index,]
+test_data_lm <-liver_clean_data_lm[-Index,]
+```
+
+I. Support Vector Machine
+
+```{r}
+set.seed(200)
+
+#training model using training dataset and SVM
+model_SVM <- ksvm(Dataset ~ ., data = train_data, kernel = "tanhdot")
+
+#predicting values for test dataset
+pred_SVM <- predict(model_SVM,test_data)
+
+#confusionMatrix for SVM
+confusionMatrix(pred_SVM,test_data$Dataset)
+
+#number of False Negatives is 19, this is not a very good result. Hence I tried more models.
+```
+II. Logistic Regression
+
+```{r}
+#training model using training dataset, stepwise logistic regression using backward elimination based on p-values. Eliminating features with p-values >0.05.
+model_glm <- glm(formula = Dataset ~ . , family = binomial, data = liver_clean_data_lm)
+summary(model_glm)
+```
+
+```{r}
+#considering features whose p-value is greater than 0.05, eliminating the rest
+
+model_glm2 <- glm(formula = Dataset ~ . , family = binomial, data = subset(liver_clean_data_lm, select=c(-Gender, -Total_Bilirubin,-Direct_Bilirubin, -Aspartate_Aminotransferase)))
+summary(model_glm2)
+
+```
+```{r}
+
+#predicting values for test dataset
+pred_lm <- predict(model_glm2,test_data_lm[,c(1,4,5,7,8,9)],type = "response")
+
+#Converting probabilities to 1 or 0
+pred_lm <- ifelse(pred_lm >=0.5, 1, 0)  
+
+#ConfusionMatrix for logistic regression
+confusionMatrix(as.factor(pred_lm),as.factor(test_data_lm$Dataset)) #The number of false negatives in comparison to SVM model are lesser.
+```
+III. K- Nearest Neighbor
+
+```{r}
+
+#training model using training dataset and KNN
+ctrl <- trainControl(method="repeatedcv", repeats = 3)
+model_knn <- train(Dataset ~ ., data = train_data, method = "knn", trControl = ctrl, preProcess = c("center","scale"), tuneLength = 20)
+
+#predicting values for test dataset
+pred_knn <- predict(model_knn, newdata = test_data)
+
+#confusionMatrix for KNN
+confusionMatrix(pred_knn,test_data$Dataset) #This model have very few cases of false negatives and a good accuracy. Hence KNN model performance is much better.
+
+```
+
+IV. Random Forest
+
+```{r}
+set.seed(200)
+#Random Forest
+
+#training model using training dataset and randomforest
+model_randomForest <- randomForest(Dataset ~., data = train_data, importance = TRUE)
+
+#predicting values for test dataset
+pred_randomForest <- predict(model_randomForest,test_data)
+
+#ConfusionMatrix for randomForest
+confusionMatrix(pred_randomForest,test_data$Dataset)
+
+```
+V. Comparison of Models
+
+```{r}
+#storing the accuracy of all the models
+SVM <- confusionMatrix(pred_SVM,test_data$Dataset)$overall['Accuracy']
+GLM <- confusionMatrix(as.factor(pred_lm),as.factor(test_data$Dataset))$overall['Accuracy']
+KNN <- confusionMatrix(pred_knn,test_data$Dataset)$overall['Accuracy']
+RandomForest <- confusionMatrix(pred_randomForest,test_data$Dataset)$overall['Accuracy']
+
+#creating a data frame of accuracy and model names
+accuracy <- data.frame(Model=c("Support Vector Machine", "Logistic Regression","KNN","Random Forest"), Accuracy=c(SVM, GLM, KNN, RandomForest))
+
+#plotting accuracy of models using ggplot
+ggplot(accuracy,aes(x=Model,y=Accuracy)) + geom_bar(stat='identity', fill="steelblue") +   geom_text(aes(label=paste0(round(Accuracy*100,1),"%")), vjust=1.6, color="white", size=3.5)+ ggtitle('Comparison of Model Accuracy') + theme_minimal()
+
+
+``` 
+VI. Model Ensemble
+
+```{r}
+#Ensembling my model: It is combining models which I have created together and compare the models based on accuracy and kappa values
+
+levels(liver_clean_data$Dataset) <- make.names(levels(liver_clean_data$Dataset))
+
+#Creating a trainControl
+control <- trainControl(method = "repeatedcv", number = 10, repeats = 3, savePredictions = TRUE, classProbs = TRUE)
+
+#Creating a list of all algorithms to be ensemled
+algorithmList <- c('svmRadial','glm','knn', 'rf')
+
+set.seed(200)
+#using caretList to build the ensemble model using all the models listed in algorithmlist
+models <- caretList(Dataset~., data = liver_clean_data, trControl = control, methodList = algorithmList)
+
+output <- resamples(models)
+summary(output)
+dotplot(output)
+
+```
+
+
+#Model Improvement
+
+I. Evaluation with k-fold Cross Validation
+
+```{r}
+#10- fold cross validation for SVM
+set.seed(200)
+
+# Define train control for k fold cross validation
+train_control_SVM <- trainControl(method="repeatedcv", number=10)
+
+# Fit SVM
+Cross_model_SVM <- train(Dataset~., data=train_data, trControl=train_control_SVM, method="svmRadial")
+
+# Summarise Results
+print(Cross_model_SVM)
+
+#predicting values for test dataset
+pred_svm_cross <- predict(Cross_model_SVM,test_data)
+
+#Evaluating SVM performance using k-fold cross validation
+confusionMatrix(pred_svm_cross, test_data$Dataset)
+```
+```{r}
+#10- fold cross validation for logistic regression
+set.seed(200)
+
+# Define train control for k fold cross validation
+train_control_GLM <- trainControl(method="repeatedcv", number=10)
+
+# Fit logistic regression
+Cross_model_GLM <- train(Dataset~., data=train_data_lm, trControl=train_control_GLM, method="glm")
+
+# Summarise Results
+print(Cross_model_GLM)
+
+#predicting values for test dataset
+pred_glm_cross <- predict(Cross_model_GLM,test_data_lm)
+
+pred_glm_cross <- ifelse(pred_glm_cross >= 0.5,1,0)
+
+#Evaluating logistic regression performance using k-fold cross validation
+confusionMatrix(as.factor(pred_glm_cross),as.factor(test_data_lm$Dataset))
+
+```
+```{r}
+#10- fold cross validation for knn
+set.seed(200)
+
+# Define train control for k fold cross validation
+train_control_knn <- trainControl(method="repeatedcv", number=10)
+
+# Fit knn
+Cross_model_knn <- train(Dataset~., data=train_data, trControl=train_control_knn, method="knn")
+
+# Summarise Results
+print(Cross_model_knn)
+
+#predicting values for test dataset
+pred_knn_cross <- predict(Cross_model_knn,test_data)
+
+#Evaluating knn performance using k-fold cross validation
+confusionMatrix(pred_knn_cross,test_data$Dataset)
+
+```
+
+
+```{r}
+#10- fold cross validation for random forest
+
+#mtry: Number of variables randomly sampled as candidates at each split.
+#kappa statistic is a measurement of the accuracy of a  model while taking into account chance. The closer the value is to 1 the better.
+
+set.seed(200)
+
+# Define train control for k fold cross validation
+train_control_RF <- trainControl(method="repeatedcv", number=10)
+# Fit Random Forest Model
+model_rf <- train(Dataset~., data=train_data, trControl=train_control_RF, method="rf")
+
+# Summarise Results
+print(model_rf)
+
+#predicting values for test dataset
+pred_rf_cross <- predict(model_rf,test_data)
+
+#Evaluating random forest model performance using k-fold cross validation
+confusionMatrix(pred_rf_cross,test_data$Dataset)
+
+
+```
+```{r}
+library(rmarkdown)
+library(shiny)
+library(shinydashboard)
+ 
+ui <- fluidPage(
+titlePanel("Liver data for diagnosis"),
+sidebarLayout(
+     sidebarPanel(
+ 
+       fileInput("file1", "Choose CSV File",
+                 multiple = FALSE,
+                 accept = c("text/csv",
+                          "text/comma-separated-values,text/plain",
+                          ".csv")),
+       tags$hr(),
+ 
+       checkboxInput("header", "Header", TRUE),
+ 
+       
+       radioButtons("sep", "Separator",
+                    choices = c(Comma = ",",
+                                Semicolon = ";",
+                                Tab = "\t"),
+                    selected = ","),
+       
+       radioButtons("quote", "Quote",
+                    choices = c(None = "",
+                                "Double Quote" = '"',
+                                "Single Quote" = "'"),
+                    selected = '"'),
+ 
+       
+       tags$hr(),
+ 
+       
+       radioButtons("disp", "Display",
+                    choices = c(Head = "head",
+                                All = "all"),
+                    selected = "head")
+ 
+     ),
+ 
+     
+     mainPanel(
+ 
+       
+       tableOutput("contents")
+ 
+     )
+ 
+   )
+ )
+ 
+ 
+ server <- function(input, output) {
+ 
+   output$contents <- renderTable({
+ 
+ 
+     req(input$file1)
+ 
+    
+     tryCatch(
+       {
+         df <- read.csv(input$file1$datapath,
+                  header = input$header,
+                  sep = input$sep,
+                  quote = input$quote)
+       },
+       error = function(e) {
+         
+         stop(safeError(e))
+       }
+     )
+ 
+     if(input$disp == "head") {
+       return(head(df))
+     }
+     else {
+       return(df)
+     }
+ 
+   })
+ 
+ }
+ 
+ 
+ shinyApp(ui, server)
+
+
+```
+
+
+
